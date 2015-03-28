@@ -15,7 +15,8 @@
 
 #include <pthread.h>
 
-#define BUFFER_SIZE (AUDIOFREQUENCYHZ * 1)
+// BUffer size for 0.3 sec 
+#define BUFFER_SIZE (16000 * 3 * 2 * 0.3)    
 
 static pthread_mutex_t  s_mutexAudioBuffer;
 
@@ -33,22 +34,26 @@ public:
       }
   }
 
-  int top;
-  int bottom;
-  int maxsize;
+  int   top;
+  int   bottom;
+  int   maxsize;
+  char  *buffer;
 
-  int size() { if (top == bottom) return 0; else return top < bottom ? bottom - top + 1: maxsize - top + bottom + 1; }
+  int size() { return top < bottom ? bottom - top: maxsize - top + bottom; }
 
   void push(char c)
   {
-      bottom++;
-      if (bottom>=maxsize) bottom = 0;
-      if (bottom == top)
-      {
-          top++;
-          if (top>=maxsize) top = 0;
-      }
-      buffer[bottom] = c;
+    buffer[bottom] = c;
+    bottom++;
+    if (bottom>=maxsize) bottom = 0;
+    if (bottom == top)
+    {
+        //move top 2 bytes for keeping the 2 byte align
+        top++;
+        if (top>=maxsize) top = 0;
+        top++;
+        if (top>=maxsize) top = 0;
+    }
   }
 
   char pop()
@@ -62,9 +67,8 @@ public:
     return r;
   }
 
-  long long       timestamp;
-  int             length;
-  char            *buffer;
+  bool isBufferFull() { return size() == maxsize - 1;}
+
 };
 
 class ThreadLockHelper
@@ -160,7 +164,7 @@ void AudioCaptureRemote::xStartAudio()
   {
     audioDevice->callVoid("setClientPreferences",
                           getName(),                //Name of this module
-                          AUDIOFREQUENCYHZ,         //48000 Hz requested
+                          16000,                    //16000 Hz requested  For NAOqi 2.0.6, it only can provide buffer with 16000Hz when you listen single channel. 48000 Hz is only supported !!
                           (int)AL::FRONTCHANNEL,    //Front Channels requested
                           0                         //Deinterleaving not requested
                           );
@@ -196,12 +200,27 @@ void AudioCaptureRemote::process(const int &pNbOfInputChannels,
                               const AL::ALValue &pTimeStamp)
 {
   LOCKER(s_mutexAudioBuffer);
+ 
+  //printf("%lld write before len:%d top:%d bottom:%d   ", xGetTime(),pNbrSamples , fAudioRingBuffer->top, fAudioRingBuffer->bottom);
   for (int i = 0 ; i < pNbrSamples; i++)
   {
-    unsigned short v = (unsigned short) pData[i]; 
-    fAudioRingBuffer->push(v  & 0xFF);
-    fAudioRingBuffer->push((v >> 8) & 0xFF);
+    short v = (short) pData[i];
+    char l = v & 0xFF;
+    char h = (v & 0xFF00) >> 8; 
+
+    // Destination buffer (Qt) recieves sound with 48000 Hz, so triple the sample...
+    for (int j = 0; j < 3;j++)
+    {
+      fAudioRingBuffer->push(l);
+      fAudioRingBuffer->push(h);
+    }
   }
+  //printf("write after len:%d top:%d bottom:%d size:%d", pNbrSamples , fAudioRingBuffer->top, fAudioRingBuffer->bottom, fAudioRingBuffer->size());
+  //if (fAudioRingBuffer->isBufferFull())
+  //{
+  //  printf("!!!!!!!! buffer full\n");
+  //}
+  //std::cout << std::endl;  
 }
 
 //static
@@ -219,9 +238,9 @@ int AudioCaptureRemote::readData(char *data, int len)
 
 int AudioCaptureRemote::readDataInternal(char *data, int len)
 {
-  int bufSize = 0;
   {
     LOCKER(s_mutexAudioBuffer);
+    //printf("read buffer before:len:%d top:%d bottom:%d   ",  len, fAudioRingBuffer->top, fAudioRingBuffer->bottom);
     if (fAudioRingBuffer->size() < len) len = fAudioRingBuffer->size();
     if (len % 2 == 1) len--;
 
@@ -229,9 +248,10 @@ int AudioCaptureRemote::readDataInternal(char *data, int len)
     {
        data[i] = fAudioRingBuffer->pop();
     }
-    bufSize = fAudioRingBuffer->size();
+    int bufSize = fAudioRingBuffer->size();
+    //printf("read buffer after:%d len:%d top:%d bottom:%d", bufSize, len, fAudioRingBuffer->top, fAudioRingBuffer->bottom);
+    //std::cout << std::endl;  
   }
-
   return len;
 }
 

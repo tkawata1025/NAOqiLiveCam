@@ -9,8 +9,6 @@
 #include <string>
 #include <vector>
 
-#define AUDIOFREQUENCYHZ (48000)
-
 
 class NaoInterface
 {

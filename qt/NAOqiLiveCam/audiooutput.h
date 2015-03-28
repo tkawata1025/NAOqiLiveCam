@@ -76,12 +76,14 @@ public:
     AudioOutput();
     ~AudioOutput();
 
+    void startPlay();
+    void stopPlay();
+
 private:
     void initializeAudio();
     void createAudioOutput();
 
 private:
-    QTimer*          m_pullTimer;
 
     QAudioDeviceInfo m_device;
     Generator*       m_generator;

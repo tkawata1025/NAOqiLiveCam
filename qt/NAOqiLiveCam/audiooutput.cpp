@@ -103,7 +103,7 @@ void AudioOutput::initializeAudio()
 
     std::cout << "AudioOutput::initializeAudio()";
 
-    m_format.setFrequency(AUDIOFREQUENCYHZ);
+    m_format.setFrequency(48000);
     m_format.setChannels(1);
     m_format.setSampleSize(16);
     m_format.setCodec("audio/pcm");
@@ -128,8 +128,6 @@ void AudioOutput::createAudioOutput()
     delete m_audioOutput;
     m_audioOutput = 0;
     m_audioOutput = new QAudioOutput(m_device, m_format, this);
-    m_generator->start();
-    m_audioOutput->start(m_generator);
 }
 
 AudioOutput::~AudioOutput()
@@ -140,7 +138,6 @@ AudioOutput::~AudioOutput()
 void AudioOutput::deviceChanged(int index)
 {
     (void)index;
-    m_pullTimer->stop();
     m_generator->stop();
     m_audioOutput->stop();
     m_audioOutput->disconnect(this);
@@ -151,4 +148,17 @@ void AudioOutput::deviceChanged(int index)
 void AudioOutput::stateChanged(QAudio::State state)
 {
     qWarning() << "state = " << state;
+}
+
+void AudioOutput::startPlay()
+{
+    m_generator->start();
+    m_audioOutput->start(m_generator);
+}
+
+void AudioOutput::stopPlay()
+{
+    m_generator->stop();
+    m_audioOutput->stop();
+    m_audioOutput->disconnect(this);
 }

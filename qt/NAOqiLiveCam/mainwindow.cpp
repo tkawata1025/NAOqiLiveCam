@@ -36,7 +36,7 @@ MainWindow::MainWindow(QWidget *parent) :
     s_window = this;
 
 
-    audio = new AudioOutput();
+    d_audio = new AudioOutput();
 
 }
 
@@ -45,8 +45,8 @@ MainWindow::~MainWindow()
     if (d_cameraIntervalTimer)
         d_cameraIntervalTimer->stop();
 
-    if (audio)
-        delete audio;
+    if (d_audio)
+        delete d_audio;
 
     delete ui;
 
@@ -86,6 +86,7 @@ void MainWindow::connectButtonClicked()
         s_isConnected = true;
 
         d_cameraIntervalTimer->start();
+        d_audio->startPlay();
     }
     catch ( std::string exceptionMsg )
     {
@@ -100,6 +101,7 @@ void MainWindow::disconnectButtonClicked()
     try
     {
         d_cameraIntervalTimer->stop();
+        d_audio->stopPlay();
         QString msg = "disconnect from ";
         msg.append(ui->naoIp->text());
         msg.append("...");

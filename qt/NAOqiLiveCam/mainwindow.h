@@ -28,7 +28,7 @@ public:
 private:
     Ui::MainWindow *ui;
 
-    AudioOutput *audio;
+    AudioOutput *d_audio;
 
 protected:
     virtual void paintEvent(QPaintEvent *event );
