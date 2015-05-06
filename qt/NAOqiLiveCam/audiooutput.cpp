@@ -1,111 +1,34 @@
-/****************************************************************************
-**
-** Copyright (C) 2012 Nokia Corporation and/or its subsidiary(-ies).
-** All rights reserved.
-** Contact: Nokia Corporation (qt-info@nokia.com)
-**
-** This file is part of the examples of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:BSD$
-** You may use this file under the terms of the BSD license as follows:
-**
-** "Redistribution and use in source and binary forms, with or without
-** modification, are permitted provided that the following conditions are
-** met:
-**   * Redistributions of source code must retain the above copyright
-**     notice, this list of conditions and the following disclaimer.
-**   * Redistributions in binary form must reproduce the above copyright
-**     notice, this list of conditions and the following disclaimer in
-**     the documentation and/or other materials provided with the
-**     distribution.
-**   * Neither the name of Nokia Corporation and its Subsidiary(-ies) nor
-**     the names of its contributors may be used to endorse or promote
-**     products derived from this software without specific prior written
-**     permission.
-**
-** THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-** "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-** LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-** A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-** OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-** SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-** LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-** DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-** THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-** (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-** OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+/**
+ * @author Takuji Kawata
+ * Updated 2015/05/07
+ */
 
 #include <QDebug>
-#include <QVBoxLayout>
-
 #include <QAudioOutput>
 #include <QAudioDeviceInfo>
-#include <QtCore/qmath.h>
-#include <QtCore/qendian.h>
+#include <QMutex>
 #include "audiooutput.h"
-#include <iostream>
 
-#include "NAOqi/nao_interface/nao_interface.h"
-
-Generator::Generator(QObject *parent)
-    :   QIODevice(parent)
-{
-}
-
-Generator::~Generator()
-{
-
-}
-
-void Generator::start()
-{
-    open(QIODevice::ReadOnly);
-}
-
-void Generator::stop()
-{
-    close();
-}
-
-qint64 Generator::readData(char *data, qint64 len)
-{
-    return NaoInterface::readAudioBuffer(data, len);
-}
-
-qint64 Generator::writeData(const char *data, qint64 len)
-{
-    Q_UNUSED(data);
-    Q_UNUSED(len);
-
-    return 0;
-}
-
-qint64 Generator::bytesAvailable() const
-{
-    std::cout << "AudioOutput::bytesAvailable()¥n";
-    return QIODevice::bytesAvailable();
-}
+static QMutex tmutex;
 
 AudioOutput::AudioOutput()
     :   m_device(QAudioDeviceInfo::defaultOutputDevice())
-    ,   m_generator(0)
     ,   m_audioOutput(0)
-    ,   m_output(0)
+    ,   m_outputDevice(0)
 {
     initializeAudio();
+
+    NaoInterface::instance()->setAudioInterface(this);
 }
 
 void AudioOutput::initializeAudio()
 {
 
-    std::cout << "AudioOutput::initializeAudio()";
+    qWarning()  << "AudioOutput::initializeAudio()";
 
-    m_format.setFrequency(48000);
-    m_format.setChannels(1);
-    m_format.setSampleSize(16);
+    m_format.setFrequency(SAMPLERATE_OUT);
+    m_format.setChannels(NBOFOUTPUTCHANNELS_OUT);
+    m_format.setSampleSize(CHANNELBYTES*8);
     m_format.setCodec("audio/pcm");
     m_format.setByteOrder(QAudioFormat::LittleEndian);
     m_format.setSampleType(QAudioFormat::SignedInt);
@@ -116,29 +39,30 @@ void AudioOutput::initializeAudio()
         m_format = info.nearestFormat(m_format);
     }
 
-    m_generator = new Generator(this);
-
     createAudioOutput();
+
+    m_workderThread = new AudioOutputWorkerThread();
+    m_workderThread->start();
 }
 
 void AudioOutput::createAudioOutput()
 {
-    std::cout << "AudioPlayer::initializeAudio()";
+    qWarning() << "AudioPlayer::initializeAudio()";
 
-    delete m_audioOutput;
+    if (m_audioOutput)
+        delete m_audioOutput;
     m_audioOutput = 0;
     m_audioOutput = new QAudioOutput(m_device, m_format, this);
 }
 
 AudioOutput::~AudioOutput()
 {
-
+    delete m_workderThread;
 }
 
 void AudioOutput::deviceChanged(int index)
 {
     (void)index;
-    m_generator->stop();
     m_audioOutput->stop();
     m_audioOutput->disconnect(this);
     createAudioOutput();
@@ -152,13 +76,110 @@ void AudioOutput::stateChanged(QAudio::State state)
 
 void AudioOutput::startPlay()
 {
-    m_generator->start();
-    m_audioOutput->start(m_generator);
+    m_workderThread->setOutputDevice(NULL);
+    m_outputDevice = m_audioOutput->start();
+    m_workderThread->setOutputDevice(m_outputDevice);
 }
 
 void AudioOutput::stopPlay()
 {
-    m_generator->stop();
     m_audioOutput->stop();
     m_audioOutput->disconnect(this);
+}
+
+void AudioOutput::writeData(const short *data, int samples)
+{
+    if (m_workderThread)
+    {
+        m_workderThread->writeAudioBuffer(data, samples);
+    }
+}
+
+
+
+AudioOutputWorkerThread::AudioOutputWorkerThread() : m_quit(false), m_outputDevice(0)
+{
+    m_buffers[0] = new char[CHANNELBYTES * NBOFOUTPUTCHANNELS_OUT * SAMPLERATE_OUT * BUFFERSAMPLESIZEMSEC / 1000];
+    m_buffers[1] = new char[CHANNELBYTES * NBOFOUTPUTCHANNELS_OUT * SAMPLERATE_OUT * BUFFERSAMPLESIZEMSEC / 1000];
+    m_numSamples = 0;
+}
+
+AudioOutputWorkerThread::~AudioOutputWorkerThread()
+{
+    m_quit = true;
+    m_sem.release();
+    wait(5000);
+
+    tmutex.lock();
+    for (int i = 0; i < 2; i++)
+    {
+        if (m_buffers[i])
+        {
+            delete m_buffers[i];
+            m_buffers[i] = NULL;
+        }
+    }
+    tmutex.unlock();
+}
+
+void AudioOutputWorkerThread::run()
+{
+    while(!m_quit)
+    {
+        m_sem.acquire();
+        if (!m_quit)
+        {
+            if (m_outputDevice)
+            {
+                memcpy(m_buffers[1], m_buffers[0], m_numSamples* NBOFOUTPUTCHANNELS_OUT * CHANNELBYTES);
+                m_outputDevice->write(m_buffers[1],m_numSamples* NBOFOUTPUTCHANNELS_OUT * CHANNELBYTES);
+            }
+        }
+    }
+}
+
+
+void AudioOutputWorkerThread::writeAudioBuffer(const short *buffer, int numSamples)
+{
+  tmutex.lock();
+
+  if (m_quit)
+  {
+      tmutex.unlock();
+      return;
+  }
+
+  int p = 0;
+  int outSamples = 0;
+
+  if (numSamples > SAMPLERATE_IN * BUFFERSAMPLESIZEMSEC / 1000)
+  {
+    qWarning() << "input sample is bigger than the internal buffer!! nbsamples:" << numSamples << "   internal buffer:" << (SAMPLERATE_IN * BUFFERSAMPLESIZEMSEC / 1000);
+    numSamples = SAMPLERATE_IN * BUFFERSAMPLESIZEMSEC / 1000;
+  }
+
+  for (int i = 0 ; i < numSamples; i++)
+  {
+    short v = (short) buffer[i];
+    char l = v & 0xFF;
+    char h = (v & 0xFF00) >> 8;
+
+    // Destination buffer (Qt) recieves sound with 48000 Hz, so triple the sample...
+    for (int j = 0; j < SAMPLERATE_OUT/SAMPLERATE_IN ;j++)
+    {
+      m_buffers[0][p++] = l;
+      m_buffers[0][p++] = h;
+      outSamples++;
+    }
+  }
+
+  m_numSamples = outSamples;
+  if (m_sem.available()>1)
+  {
+      //qWarning() << "buffer delays..";
+      return;
+  }
+  m_sem.release();
+
+  tmutex.unlock();
 }

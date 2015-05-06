@@ -1,10 +1,13 @@
+/**
+ * @author Takuji Kawata
+ * Updated 2015/05/07
+ */
+
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
 #include <QMainWindow>
-#include <QGraphicsScene>
 #include <QTimer>
-
 
 namespace Ui {
 class MainWindow;
@@ -16,7 +19,6 @@ class MainWindow : public QMainWindow
 {
     Q_OBJECT
 
-    QGraphicsScene  *d_cameraViewScene;
     QTimer          *d_cameraIntervalTimer;
 
 public:
@@ -26,9 +28,8 @@ public:
     static void consoleMessage(const QString& msg);
 
 private:
-    Ui::MainWindow *ui;
-
-    AudioOutput *d_audio;
+    Ui::MainWindow  *ui;
+    AudioOutput     *d_audio;
 
 protected:
     virtual void paintEvent(QPaintEvent *event );

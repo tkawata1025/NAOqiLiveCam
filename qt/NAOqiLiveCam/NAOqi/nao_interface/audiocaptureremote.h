@@ -1,6 +1,7 @@
 /**
  * @author Takuji Kawata
  * Updated 2015/03/27
+ * Updated 2015/05/07
  */
 
 #ifndef AUDIOCAPTURE_AVCAPTUREREMOTE_H
@@ -9,9 +10,6 @@
 #include <string>
 #include <alcommon/almodule.h>
 #include <alaudio/alsoundextractor.h>
-#include <pthread.h>
-
-class SimpleRingBuffer;
 
 namespace AL
 {
@@ -64,16 +62,9 @@ protected:
     /// Stop audio capture.
     void xStopAudio();
 
-    /// The maximum number of samples provided by ALAudioDevice.
-    static int kMaxNofSamples;
-
     /// Our output buffer, allocated once.
     //AL_SOUND_FORMAT* fAudioBuffer;
     //unsigned short* fAudioBuffer;
-
-public:
-
-    static int readData(char *data, int len); 
 
     /**
      * Remote callback from ALAudioDevice providing sound buffers.
@@ -87,15 +78,9 @@ public:
                  const AL_SOUND_FORMAT *pDataInterleaved,
                  const AL::ALValue &pTimeStamp);
 
-    int readDataInternal(char *data, int len);
-
     /// Get the time in Us
     /// @return time in Us
     static long long xGetTime();
-
-private:
-
-    SimpleRingBuffer *fAudioRingBuffer; 
 
 };
 

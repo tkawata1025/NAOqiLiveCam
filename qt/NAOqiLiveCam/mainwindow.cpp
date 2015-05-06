@@ -1,3 +1,8 @@
+/**
+ * @author Takuji Kawata
+ * Updated 2015/05/07
+ */
+
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include "NAOqi/nao_interface/nao_interface.h"
@@ -30,18 +35,18 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->disconnectButton, SIGNAL(clicked()), this, SLOT(disconnectButtonClicked()));
 
     d_cameraIntervalTimer = new QTimer(this);
-    d_cameraIntervalTimer->setInterval(100);
+    d_cameraIntervalTimer->setInterval(1000/CAMERA_FPS);
     connect(d_cameraIntervalTimer, SIGNAL(timeout()), this, SLOT(updateCameraView()));
 
     s_window = this;
 
-
     d_audio = new AudioOutput();
-
 }
 
 MainWindow::~MainWindow()
 {
+    NaoInterface::instance()->disconnect();
+
     if (d_cameraIntervalTimer)
         d_cameraIntervalTimer->stop();
 

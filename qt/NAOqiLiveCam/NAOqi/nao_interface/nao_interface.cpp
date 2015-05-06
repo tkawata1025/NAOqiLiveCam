@@ -1,6 +1,7 @@
 /**
  * @author Takuji Kawata
  * Updated 2015/03/27
+ * Updated 2015/05/07 
  */
 
 #define DLLAPI __declspec(dllexport)
@@ -34,6 +35,7 @@
 #include <pthread.h>
 
 static AL::ALVideoDeviceProxy	*s_cameraProxy = NULL;
+static AL::ALProxy 				*s_audioCaptureProxy = NULL;
 static std::string				s_cameraClientName;
 static cv::Mat					s_cameraImage;
 static cv::Mat					s_cameraImageClone;
@@ -44,17 +46,7 @@ static pthread_mutex_t	s_mutex;
 static pthread_mutex_t	s_mutexCamUpdate;
 
 const static float	QVGA_WIDTH	= 320;
-const static float	QVGA_HEIGHT= 240;
-
-ALCALL int _createModule(boost::shared_ptr<AL::ALBroker> pBroker)
-{
-  // init broker with the main broker instance
-  // from the parent executable
-  AL::ALBrokerManager::setInstance(pBroker->fBrokerManager.lock());
-  AL::ALBrokerManager::getInstance()->addBroker(pBroker);
-  AL::ALModule::createModule<AudioCaptureRemote>(pBroker, "AudioCaptureRemote");
-  return 0;
-}
+const static float	QVGA_HEIGHT	= 240;
 
 class ThreadLockHelper
 {
@@ -81,7 +73,7 @@ NaoInterface* NaoInterface::instance()
 	return &sInstance;
 }
 
-NaoInterface::NaoInterface()
+NaoInterface::NaoInterface() : m_audioOutput(NULL)
 {
 	pthread_mutex_init(&s_mutex, NULL);
 	pthread_mutex_init(&s_mutexCamUpdate, NULL);
@@ -152,8 +144,10 @@ void NaoInterface::setNaoIp(const std::string ipAddress)
 			s_cameraProxy = new AL::ALVideoDeviceProxy();
 
 			LOCKER(s_mutexCamUpdate);
-			s_cameraClientName = s_cameraProxy->subscribe("cam1", AL::kQVGA, AL::kRGBColorSpace, 100);
+			s_cameraClientName = s_cameraProxy->subscribe("cam1", AL::kQVGA, AL::kRGBColorSpace, CAMERA_FPS);
 			s_cameraImage  = cv::Mat(cv::Size((int)QVGA_WIDTH, (int)QVGA_HEIGHT), CV_8UC3);
+
+			s_audioCaptureProxy = new AL::ALProxy(broker,"AudioCaptureRemote");
 
 		}
 		catch( AL::ALError e)
@@ -187,6 +181,18 @@ void NaoInterface::disconnect()
 		delete s_cameraProxy;
 	}
 	s_cameraProxy = NULL;
+
+	if (s_audioCaptureProxy)
+	{
+		try
+		{
+			s_audioCaptureProxy->call<void>("stopCapture");
+		}
+		catch( AL::ALError e)
+		{
+		}
+	}
+	s_audioCaptureProxy = NULL;
 
 	AL::ALBrokerManager::getInstance()->killAllBroker();
 	AL::ALBrokerManager::kill();
@@ -228,12 +234,6 @@ unsigned char* NaoInterface::updateCameraView()
 	s_cameraProxy->releaseImage(s_cameraClientName);
 
 	return (unsigned char*) s_cameraImageClone.data;
-}
-
-//static
-int NaoInterface::readAudioBuffer(char *data, int len)
-{
-	return AudioCaptureRemote::readData(data, len);
 }
 
 
